@@ -1,0 +1,246 @@
+diff -r 3b6d69857de2 src/core/ngx_palloc.c
+--- a/src/core/ngx_palloc.c	Thu Aug 13 16:27:17 2015 +0300
++++ b/src/core/ngx_palloc.c	Fri Aug 14 10:42:22 2015 +0800
+@@ -12,17 +12,79 @@
+ static void *ngx_palloc_block(ngx_pool_t *pool, size_t size);
+ static void *ngx_palloc_large(ngx_pool_t *pool, size_t size);
+ 
++#if (NGX_DEBUG_POOL)
++
++/* used if allocating stat failed */
++static ngx_pool_stat_t  ngx_pool_default_stat = {
++    (u_char *) "default", 0, 0, 0, 0, NULL
++};
++
++ngx_pool_stat_t *ngx_pool_stats[NGX_POOL_STATS_MAX] = { NULL };
++ngx_int_t        ngx_pool_stats_num = 0;
++
++static ngx_pool_stat_t *
++ngx_pstat(u_char *func)
++{
++    uint32_t         index;
++    ngx_pool_stat_t *stat, **pstat;
++
++    /* try to find stat */
++
++    index = ((((uint64_t) func) & 0xffffffff) >> 2) % NGX_POOL_STATS_MAX;
++    pstat = &ngx_pool_stats[index];
++    for (;;) {
++        stat = *pstat;
++        if (stat == NULL) {
++            break;
++        }
++        if (stat->func == func) {
++            return stat;
++        }
++        pstat = &stat->next;
++    }
++
++    /* alloc new stat */
++
++    stat = ngx_calloc(sizeof(ngx_pool_stat_t), ngx_cycle->log);
++    if (stat == NULL) {
++        return &ngx_pool_default_stat;
++    }
++    stat->func = func;
++    *pstat = stat;
++    ngx_pool_stats_num++;
++
++    return stat;
++}
++#endif
+ 
+ ngx_pool_t *
++#if (NGX_DEBUG_POOL)
++__ngx_create_pool(size_t size, ngx_log_t *log, u_char *func, ngx_int_t line)
++#else
+ ngx_create_pool(size_t size, ngx_log_t *log)
++#endif
+ {
+     ngx_pool_t  *p;
+ 
++#if (NGX_DEBUG_POOL)
++    if (size < NGX_MIN_POOL_SIZE) {
++        size = NGX_MIN_POOL_SIZE;
++    }
++#endif
++
+     p = ngx_memalign(NGX_POOL_ALIGNMENT, size, log);
+     if (p == NULL) {
+         return NULL;
+     }
+ 
++#if (NGX_DEBUG_POOL)
++    p->stat = ngx_pstat(func);
++    p->stat->size += size;
++    p->stat->num += 1;
++    p->stat->cnum += 1;
++    p->size = size;
++#endif
++
+     p->d.last = (u_char *) p + sizeof(ngx_pool_t);
+     p->d.end = (u_char *) p + size;
+     p->d.next = NULL;
+@@ -61,6 +123,9 @@
+         ngx_log_debug1(NGX_LOG_DEBUG_ALLOC, pool->log, 0, "free: %p", l->alloc);
+ 
+         if (l->alloc) {
++#if (NGX_DEBUG_POOL)
++            pool->stat->size -= l->size;
++#endif
+             ngx_free(l->alloc);
+         }
+     }
+@@ -83,6 +148,11 @@
+ 
+ #endif
+ 
++#if (NGX_DEBUG_POOL)
++    pool->stat->size -= pool->size;
++    pool->stat->cnum -= 1;
++#endif
++
+     for (p = pool, n = pool->d.next; /* void */; p = n, n = n->d.next) {
+         ngx_free(p);
+ 
+@@ -101,6 +171,9 @@
+ 
+     for (l = pool->large; l; l = l->next) {
+         if (l->alloc) {
++#if (NGX_DEBUG_POOL)
++            pool->stat->size -= l->size;
++#endif
+             ngx_free(l->alloc);
+         }
+     }
+@@ -189,6 +262,10 @@
+     if (m == NULL) {
+         return NULL;
+     }
++#if (NGX_DEBUG_POOL)
++    pool->size += psize;
++    pool->stat->size += psize;
++#endif
+ 
+     new = (ngx_pool_t *) m;
+ 
+@@ -219,6 +296,10 @@
+     ngx_uint_t         n;
+     ngx_pool_large_t  *large;
+ 
++#if (NGX_DEBUG_POOL)
++    pool->stat->lnum += 1;
++#endif
++
+     p = ngx_alloc(size, pool->log);
+     if (p == NULL) {
+         return NULL;
+@@ -229,6 +310,10 @@
+     for (large = pool->large; large; large = large->next) {
+         if (large->alloc == NULL) {
+             large->alloc = p;
++#if (NGX_DEBUG_POOL)
++            large->size = size;
++            pool->stat->size += size;
++#endif
+             return p;
+         }
+ 
+@@ -246,6 +331,10 @@
+     large->alloc = p;
+     large->next = pool->large;
+     pool->large = large;
++#if (NGX_DEBUG_POOL)
++    large->size = size;
++    pool->stat->size += size;
++#endif
+ 
+     return p;
+ }
+@@ -271,6 +360,10 @@
+     large->alloc = p;
+     large->next = pool->large;
+     pool->large = large;
++#if (NGX_DEBUG_POOL)
++    large->size = size;
++    pool->stat->size += size;
++#endif
+ 
+     return p;
+ }
+@@ -287,6 +380,10 @@
+                            "free: %p", l->alloc);
+             ngx_free(l->alloc);
+             l->alloc = NULL;
++#if (NGX_DEBUG_POOL)
++            pool->stat->size -= l->size;
++            l->size = 0;
++#endif
+ 
+             return NGX_OK;
+         }
+diff -r 3b6d69857de2 src/core/ngx_palloc.h
+--- a/src/core/ngx_palloc.h	Thu Aug 13 16:27:17 2015 +0300
++++ b/src/core/ngx_palloc.h	Fri Aug 14 10:42:22 2015 +0800
+@@ -43,6 +43,9 @@
+ struct ngx_pool_large_s {
+     ngx_pool_large_t     *next;
+     void                 *alloc;
++#if  (NGX_DEBUG_POOL)
++    size_t                size;
++#endif
+ };
+ 
+ 
+@@ -54,6 +57,26 @@
+ } ngx_pool_data_t;
+ 
+ 
++#if (NGX_DEBUG_POOL)
++
++#define NGX_POOL_STATS_MAX      997 /* prime */
++
++typedef struct ngx_pool_stat_s   ngx_pool_stat_t;
++
++struct ngx_pool_stat_s {
++    u_char               *func;
++    size_t                size;
++    size_t                num;      /* number of total pools */
++    size_t                cnum;     /* number of current used pools */
++    size_t                lnum;     /* number of calling ngx_palloc_large() */
++    ngx_pool_stat_t      *next;
++};
++
++extern ngx_pool_stat_t *ngx_pool_stats[NGX_POOL_STATS_MAX];
++extern ngx_int_t        ngx_pool_stats_num;
++#endif
++
++
+ struct ngx_pool_s {
+     ngx_pool_data_t       d;
+     size_t                max;
+@@ -62,6 +85,10 @@
+     ngx_pool_large_t     *large;
+     ngx_pool_cleanup_t   *cleanup;
+     ngx_log_t            *log;
++#if  (NGX_DEBUG_POOL)
++    size_t                size;
++    ngx_pool_stat_t      *stat;
++#endif
+ };
+ 
+ 
+@@ -75,7 +102,13 @@
+ void *ngx_alloc(size_t size, ngx_log_t *log);
+ void *ngx_calloc(size_t size, ngx_log_t *log);
+ 
++#if  (NGX_DEBUG_POOL)
++ngx_pool_t *__ngx_create_pool(size_t size, ngx_log_t *log, u_char *func, ngx_int_t line);
++#define ngx_create_pool(size, log) __ngx_create_pool(size, log, (u_char *) __func__, __LINE__)
++#else
+ ngx_pool_t *ngx_create_pool(size_t size, ngx_log_t *log);
++#endif
++
+ void ngx_destroy_pool(ngx_pool_t *pool);
+ void ngx_reset_pool(ngx_pool_t *pool);
+ 
