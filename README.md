@@ -143,5 +143,5 @@ Exception
 
 Memory allocated without using memory pool does not get taken into account with this module.  
 For example,
-* ngx_http_spdy_module allocates a temporary buffer via malloc(ngx_alloc) for raw data of SYN_REPLY frame. After being compressed, this buffer will be freed immediately.
+* [ngx_http_spdy_module](http://nginx.org/en/docs/http/ngx_http_spdy_module.html) allocates a temporary buffer via malloc(ngx_alloc) for raw data of SYN_REPLY frame. After being compressed, this buffer will be freed immediately.
 * All lua internal objects of Lua/LuaJIT used by [lua-nginx-module](https://github.com/openresty/lua-nginx-module) are allocated/freed via malloc/free. So the information of Lua/LuaJIT memory usage cannot be accessed from this module. 
