@@ -46,7 +46,7 @@ get information of specific process
 
 Also you can use gdb script `debug_pool.gdb` to get information of specific process.  
 Some process cannot handle HTTP request, such as master process or [tengine Proc process](https://github.com/alibaba/tengine/blob/master/docs/modules/ngx_procs_module.md).  
-The following example shows how to get information of master process and memory usage of specific memory pool.
+The following example shows how to get information of master process.
 
 ```
 $ gdb -q -x debug_pool.gdb -p <pid of master process>
