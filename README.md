@@ -109,7 +109,7 @@ The latest module is compatible with the following versions of nginx:
 Tengine Compatibility
 =====================
 
-This module will be merged into tengine soon, see here: https://github.com/alibaba/tengine/pull/638.
+This module has been merged into tengine, see this [pull request](https://github.com/alibaba/tengine/pull/638).
 
 Install
 =======
@@ -125,7 +125,7 @@ $ ./configure --add-module=/path/to/ngx_debug_pool
 $ make && make install
 ```
 
-Note that `debug_pool.patch` includes memory tracking logic in macro NGX_DEBUG_POOL, and `config` will enable this macro automatically.
+Note that `debug_pool.patch` includes memory tracking logic in macro NGX_DEBUG_POOL, and [config](config) will enable this macro automatically.
 
 Directive
 =========
